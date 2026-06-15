@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useColdStorageStore } from '@/store/coldStorageStore';
 import { useTaskStore } from '@/store/taskStore';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -19,14 +19,42 @@ import {
   ExternalLink,
   ChevronRight,
   ArrowLeft,
+  Bell,
+  CalendarClock,
+  AlertOctagon,
 } from 'lucide-react';
-import type { StorageUnitStatus } from '@/types';
+import type { StorageUnitStatus, ColdStorageUnit } from '@/types';
 
 export default function ColdStorage() {
   const navigate = useNavigate();
-  const { units, getUnitsByCabinet, getOccupiedUnits, getAvailableUnits, storeBody, releaseUnit, storageRecords } =
+  const location = useLocation();
+  const { units, getUnitsByCabinet, getOccupiedUnits, getAvailableUnits, storeBody, releaseUnit, storageRecords, getExpiringUnits, getOverdueUnits, getApproachingUnits, refreshExpiryStatus } =
     useColdStorageStore();
   const { tasks } = useTaskStore();
+
+  useEffect(() => {
+    refreshExpiryStatus();
+    const interval = setInterval(refreshExpiryStatus, 60000);
+    return () => clearInterval(interval);
+  }, [refreshExpiryStatus]);
+
+  useEffect(() => {
+    if (location.state) {
+      const { unitId, cabinetNo } = location.state as { unitId?: string; cabinetNo?: string };
+      if (unitId && cabinetNo) {
+        setSelectedCabinet(cabinetNo);
+        setSelectedUnitId(unitId);
+        setStatusFilter('all');
+        setTimeout(() => {
+          const element = document.querySelector(`[data-unit-id="${unitId}"]`);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
+        navigate(location.pathname, { replace: true, state: {} });
+      }
+    }
+  }, [location, navigate]);
   const [selectedCabinet, setSelectedCabinet] = useState<string>('A');
   const [statusFilter, setStatusFilter] = useState<StorageUnitStatus | 'all'>('all');
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
@@ -130,9 +158,25 @@ export default function ColdStorage() {
 
   const occupancyRate = Math.round((stats.occupied / stats.total) * 100);
 
+  const expiringUnits = getExpiringUnits();
+  const overdueUnits = getOverdueUnits();
+  const approachingUnits = getApproachingUnits();
+
   const availableTasks = tasks.filter(
     (t) => t.status === 'returning' || t.status === 'transferring' || t.status === 'arrived'
   );
+
+  const handleExpiryUnitClick = (unit: ColdStorageUnit) => {
+    setSelectedCabinet(unit.cabinetNo);
+    setSelectedUnitId(unit.id);
+    setStatusFilter('all');
+    setTimeout(() => {
+      const element = document.querySelector(`[data-unit-id="${unit.id}"]`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  };
 
   const getTaskByUnitId = (unitId: string) => {
     const unit = units.find((u) => u.id === unitId);
@@ -199,6 +243,78 @@ export default function ColdStorage() {
           </div>
         </div>
       </div>
+
+      {expiringUnits.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Bell className="w-5 h-5 text-amber-500" />
+            <h2 className="text-lg font-semibold text-gray-800">到期提醒</h2>
+            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
+              {expiringUnits.length} 项
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {overdueUnits.map((unit) => (
+              <div
+                key={unit.id}
+                onClick={() => handleExpiryUnitClick(unit)}
+                className="flex items-center gap-4 p-4 bg-red-50 border border-red-200 rounded-lg cursor-pointer hover:bg-red-100 transition-colors"
+              >
+                <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <AlertOctagon className="w-6 h-6 text-red-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-medium rounded-full">
+                      已超期
+                    </span>
+                    <span className="text-sm font-medium text-gray-800">
+                      {unit.cabinetNo}柜{unit.layer}层{unit.unitNo}号
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-800 truncate">
+                    {unit.deceasedName}
+                  </p>
+                  <p className="text-xs text-red-600">
+                    超期 {Math.abs(unit.daysRemaining || 0)} 天
+                    {unit.expectedPickupTime && ` · 原预计 ${formatDateTime(unit.expectedPickupTime)}`}
+                  </p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-red-400 flex-shrink-0" />
+              </div>
+            ))}
+            {approachingUnits.map((unit) => (
+              <div
+                key={unit.id}
+                onClick={() => handleExpiryUnitClick(unit)}
+                className="flex items-center gap-4 p-4 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer hover:bg-amber-100 transition-colors"
+              >
+                <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <CalendarClock className="w-6 h-6 text-amber-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 bg-amber-500 text-white text-xs font-medium rounded-full">
+                      即将到期
+                    </span>
+                    <span className="text-sm font-medium text-gray-800">
+                      {unit.cabinetNo}柜{unit.layer}层{unit.unitNo}号
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-800 truncate">
+                    {unit.deceasedName}
+                  </p>
+                  <p className="text-xs text-amber-600">
+                    剩余 {unit.daysRemaining} 天
+                    {unit.expectedPickupTime && ` · 预计 ${formatDateTime(unit.expectedPickupTime)}`}
+                  </p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4 flex-wrap">
@@ -289,6 +405,12 @@ export default function ColdStorage() {
                               </span>
                               {unit.status === 'maintenance' && (
                                 <AlertTriangle className="w-4 h-4 text-orange-500" />
+                              )}
+                              {unit.expiryStatus === 'overdue' && (
+                                <AlertOctagon className="w-4 h-4 text-red-500" title="已超期" />
+                              )}
+                              {unit.expiryStatus === 'approaching' && (
+                                <CalendarClock className="w-4 h-4 text-amber-500" title="即将到期" />
                               )}
                             </div>
                             {unit.deceasedName ? (
@@ -394,6 +516,26 @@ export default function ColdStorage() {
                           <span className="text-sm text-gray-700">
                             {formatDateTime(selectedUnit.expectedPickupTime)}
                           </span>
+                        </div>
+                      )}
+                      {selectedUnit.expiryStatus && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-500">到期状态</span>
+                          {selectedUnit.expiryStatus === 'overdue' ? (
+                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded-full flex items-center gap-1">
+                              <AlertOctagon className="w-3 h-3" />
+                              已超期 {Math.abs(selectedUnit.daysRemaining || 0)} 天
+                            </span>
+                          ) : selectedUnit.expiryStatus === 'approaching' ? (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full flex items-center gap-1">
+                              <CalendarClock className="w-3 h-3" />
+                              剩余 {selectedUnit.daysRemaining} 天
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                              正常
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>

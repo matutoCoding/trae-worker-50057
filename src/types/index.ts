@@ -18,6 +18,16 @@ export type ShiftType = 'morning' | 'afternoon' | 'night' | 'day_off';
 
 export type StorageUnitStatus = 'empty' | 'occupied' | 'reserved' | 'maintenance';
 
+export type AnomalyType = 
+  | 'wait' 
+  | 'reassign' 
+  | 'cancel' 
+  | 'address_change' 
+  | 'delay' 
+  | 'other';
+
+export type ExpiryStatus = 'normal' | 'approaching' | 'overdue';
+
 export interface DeceasedInfo {
   name: string;
   gender: 'male' | 'female';
@@ -31,6 +41,17 @@ export interface FamilyInfo {
   name: string;
   relation: string;
   phone: string;
+}
+
+export interface AnomalyEvent {
+  id: string;
+  taskId: string;
+  type: AnomalyType;
+  typeName: string;
+  description: string;
+  occurTime: string;
+  operatorName: string;
+  handlingResult?: string;
 }
 
 export interface TransportTask {
@@ -51,7 +72,9 @@ export interface TransportTask {
   vehicleId?: string;
   driverId?: string;
   assistantId?: string;
+  handlerId?: string;
   remarks?: string;
+  anomalyEvents: AnomalyEvent[];
   createdAt: string;
 }
 
@@ -109,6 +132,8 @@ export interface ColdStorageUnit {
   deceasedName?: string;
   storageTime?: string;
   expectedPickupTime?: string;
+  expiryStatus?: ExpiryStatus;
+  daysRemaining?: number;
 }
 
 export interface StorageRecord {
@@ -126,4 +151,37 @@ export interface StatisticsData {
   date: string;
   taskCount: number;
   mileage: number;
+}
+
+export interface TaskVehicleReconciliation {
+  taskId: string;
+  taskNo: string;
+  deceasedName: string;
+  taskVehicleId?: string;
+  taskVehiclePlate?: string;
+  vehicleId?: string;
+  vehiclePlate?: string;
+  vehicleTaskId?: string;
+  isMatch: boolean;
+  issue: 'task_no_vehicle' | 'vehicle_no_task' | 'mismatch' | 'ok';
+  issueDesc: string;
+}
+
+export interface VehicleUsageDetail {
+  vehicleId: string;
+  plateNo: string;
+  totalTasks: number;
+  totalMileage: number;
+  totalDurationMinutes: number;
+  utilizationRate: number;
+}
+
+export interface StaffWorkloadDetail {
+  staffId: string;
+  name: string;
+  role: StaffRole;
+  roleName: string;
+  taskCount: number;
+  totalMileage: number;
+  totalDurationMinutes: number;
 }

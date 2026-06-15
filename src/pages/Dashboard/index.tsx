@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useTaskStore } from '@/store/taskStore';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { useStaffStore } from '@/store/staffStore';
@@ -18,15 +19,33 @@ import {
   AlertTriangle,
   TrendingUp,
   Activity,
+  Bell,
+  CalendarClock,
+  AlertOctagon,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import type { ColdStorageUnit } from '@/types';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { tasks, getTodayTasks } = useTaskStore();
   const { vehicles, getAvailableVehicles } = useVehicleStore();
   const { staffList, getAvailableDrivers, getAvailableAssistants } = useStaffStore();
-  const { units, getOccupiedUnits, getAvailableUnits } = useColdStorageStore();
+  const { units, getOccupiedUnits, getAvailableUnits, getExpiringUnits, getOverdueUnits, getApproachingUnits, refreshExpiryStatus } = useColdStorageStore();
+
+  useEffect(() => {
+    refreshExpiryStatus();
+    const interval = setInterval(refreshExpiryStatus, 60000);
+    return () => clearInterval(interval);
+  }, [refreshExpiryStatus]);
+
+  const expiringUnits = getExpiringUnits();
+  const overdueUnits = getOverdueUnits();
+  const approachingUnits = getApproachingUnits();
+
+  const handleExpiryClick = (unit: ColdStorageUnit) => {
+    navigate('/cold-storage', { state: { unitId: unit.id, cabinetNo: unit.cabinetNo } });
+  };
 
   const todayTasks = getTodayTasks();
   const pendingTasks = tasks.filter((t) => t.status === 'pending');
@@ -104,6 +123,81 @@ export default function Dashboard() {
           );
         })}
       </div>
+
+      {expiringUnits.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-amber-500" />
+              <h2 className="text-lg font-semibold text-gray-800">冷藏到期提醒</h2>
+            </div>
+            <button
+              onClick={() => navigate('/cold-storage')}
+              className="text-sm text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1"
+            >
+              查看全部 <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {overdueUnits.map((unit) => (
+              <div
+                key={unit.id}
+                onClick={() => handleExpiryClick(unit)}
+                className="flex items-center gap-4 p-4 bg-red-50 border border-red-200 rounded-lg cursor-pointer hover:bg-red-100 transition-colors"
+              >
+                <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <AlertOctagon className="w-6 h-6 text-red-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-medium rounded-full">
+                      已超期
+                    </span>
+                    <span className="text-sm font-medium text-gray-800">
+                      {unit.cabinetNo}柜{unit.layer}层{unit.unitNo}号
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-800 truncate">
+                    {unit.deceasedName}
+                  </p>
+                  <p className="text-xs text-red-600">
+                    超期 {Math.abs(unit.daysRemaining || 0)} 天
+                  </p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-red-400 flex-shrink-0" />
+              </div>
+            ))}
+            {approachingUnits.map((unit) => (
+              <div
+                key={unit.id}
+                onClick={() => handleExpiryClick(unit)}
+                className="flex items-center gap-4 p-4 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer hover:bg-amber-100 transition-colors"
+              >
+                <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <CalendarClock className="w-6 h-6 text-amber-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 bg-amber-500 text-white text-xs font-medium rounded-full">
+                      即将到期
+                    </span>
+                    <span className="text-sm font-medium text-gray-800">
+                      {unit.cabinetNo}柜{unit.layer}层{unit.unitNo}号
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-800 truncate">
+                    {unit.deceasedName}
+                  </p>
+                  <p className="text-xs text-amber-600">
+                    剩余 {unit.daysRemaining} 天
+                  </p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100">

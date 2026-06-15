@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTaskStore } from '@/store/taskStore';
 import { useVehicleStore } from '@/store/vehicleStore';
@@ -25,8 +25,11 @@ import {
   Gauge,
   Save,
   X,
+  AlertTriangle,
+  Plus,
+  Trash2,
 } from 'lucide-react';
-import type { TaskStatus, TransportTask } from '@/types';
+import type { TaskStatus, TransportTask, AnomalyType, AnomalyEvent } from '@/types';
 
 const statusFlow: { status: TaskStatus; label: string; icon: typeof Play }[] = [
   { status: 'dispatched', label: '派发任务', icon: Send },
@@ -37,16 +40,26 @@ const statusFlow: { status: TaskStatus; label: string; icon: typeof Play }[] = [
   { status: 'completed', label: '任务完成', icon: CheckCircle },
 ];
 
+const anomalyTypeOptions: { value: AnomalyType; label: string; color: string }[] = [
+  { value: 'wait', label: '途中等待', color: 'bg-amber-500' },
+  { value: 'reassign', label: '改派车辆', color: 'bg-blue-500' },
+  { value: 'cancel', label: '家属取消', color: 'bg-red-500' },
+  { value: 'address_change', label: '变更地址', color: 'bg-purple-500' },
+  { value: 'delay', label: '延误', color: 'bg-orange-500' },
+  { value: 'other', label: '其他异常', color: 'bg-gray-500' },
+];
+
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { tasks, updateTaskStatus, assignVehicleAndStaff, updateTask } = useTaskStore();
+  const { tasks, updateTaskStatus, assignVehicleAndStaff, updateTask, addAnomalyEvent, deleteAnomalyEvent } = useTaskStore();
   const { vehicles, getAvailableVehicles, assignToTask, releaseFromTask } = useVehicleStore();
   const { getAvailableDrivers, getAvailableAssistants, staffList } = useStaffStore();
   const { getLatestRecordByTaskId } = useTransferStore();
   
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showAnomalyModal, setShowAnomalyModal] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState('');
   const [selectedDriver, setSelectedDriver] = useState('');
   const [selectedAssistant, setSelectedAssistant] = useState('');
@@ -58,6 +71,14 @@ export default function TaskDetail() {
     returnTime: '',
     actualEndTime: '',
     mileage: '',
+  });
+
+  const [anomalyData, setAnomalyData] = useState({
+    type: 'wait' as AnomalyType,
+    description: '',
+    occurTime: '',
+    operatorName: '',
+    handlingResult: '',
   });
 
   const task = tasks.find((t) => t.id === id);
@@ -137,14 +158,70 @@ export default function TaskDetail() {
     setShowEditModal(false);
   };
 
-  const timelineItems = [
-    { label: '任务创建', time: task.createdAt, color: 'bg-green-500', icon: 'create' },
-    ...(task.actualStartTime ? [{ label: '开始接运', time: task.actualStartTime, color: 'bg-blue-500', icon: 'start' }] : []),
-    ...(task.arrivalTime ? [{ label: '到达地点', time: task.arrivalTime, color: 'bg-purple-500', icon: 'arrive' }] : []),
-    ...(task.transferTime ? [{ label: '开始交接', time: task.transferTime, color: 'bg-pink-500', icon: 'transfer' }] : []),
-    ...(task.returnTime ? [{ label: '开始返程', time: task.returnTime, color: 'bg-cyan-500', icon: 'return' }] : []),
-    ...(task.actualEndTime ? [{ label: '任务完成', time: task.actualEndTime, color: 'bg-gray-500', icon: 'complete' }] : []),
-  ];
+  const anomalyEvents = task?.anomalyEvents || [];
+
+  const allTimelineItems = useMemo(() => {
+    const items: Array<{
+      label: string;
+      time: string;
+      color: string;
+      type: 'normal' | 'anomaly';
+      anomalyType?: AnomalyType;
+      description?: string;
+      operatorName?: string;
+    }> = [
+      { label: '任务创建', time: task.createdAt, color: 'bg-green-500', type: 'normal' },
+      ...(task.actualStartTime ? [{ label: '开始接运', time: task.actualStartTime, color: 'bg-blue-500', type: 'normal' as const }] : []),
+      ...(task.arrivalTime ? [{ label: '到达地点', time: task.arrivalTime, color: 'bg-purple-500', type: 'normal' as const }] : []),
+      ...(task.transferTime ? [{ label: '开始交接', time: task.transferTime, color: 'bg-pink-500', type: 'normal' as const }] : []),
+      ...(task.returnTime ? [{ label: '开始返程', time: task.returnTime, color: 'bg-cyan-500', type: 'normal' as const }] : []),
+      ...(task.actualEndTime ? [{ label: '任务完成', time: task.actualEndTime, color: 'bg-gray-500', type: 'normal' as const }] : []),
+      ...anomalyEvents.map(event => {
+        const typeConfig = anomalyTypeOptions.find(t => t.value === event.type);
+        return {
+          label: event.typeName,
+          time: event.occurTime,
+          color: typeConfig?.color || 'bg-red-500',
+          type: 'anomaly' as const,
+          anomalyType: event.type,
+          description: event.description,
+          operatorName: event.operatorName,
+        };
+      }),
+    ];
+
+    return items.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  }, [task, anomalyEvents]);
+
+  const handleAddAnomaly = () => {
+    if (!task?.id) return;
+    if (!anomalyData.description || !anomalyData.operatorName) return;
+
+    addAnomalyEvent(task.id, {
+      type: anomalyData.type,
+      typeName: anomalyTypeOptions.find(t => t.value === anomalyData.type)?.label || '',
+      description: anomalyData.description,
+      operatorName: anomalyData.operatorName,
+      handlingResult: anomalyData.handlingResult || undefined,
+      occurTime: anomalyData.occurTime || undefined,
+    });
+
+    setShowAnomalyModal(false);
+    setAnomalyData({
+      type: 'wait',
+      description: '',
+      occurTime: '',
+      operatorName: '',
+      handlingResult: '',
+    });
+  };
+
+  const handleDeleteAnomaly = (eventId: string) => {
+    if (!task?.id) return;
+    if (confirm('确定要删除这条异常记录吗？')) {
+      deleteAnomalyEvent(task.id, eventId);
+    }
+  };
 
   const toLocalInputFormat = (isoStr: string) => {
     if (!isoStr) return '';
@@ -197,6 +274,13 @@ export default function TaskDetail() {
               {nextStatus.label}
             </button>
           )}
+          <button
+            onClick={() => setShowAnomalyModal(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors font-medium"
+          >
+            <AlertTriangle className="w-4 h-4" />
+            记录异常
+          </button>
           <button
             onClick={() => setShowEditModal(true)}
             className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
@@ -347,6 +431,64 @@ export default function TaskDetail() {
             </div>
           )}
 
+          {anomalyEvents.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-red-100 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                    <AlertTriangle className="w-4 h-4 text-red-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-800">异常事件记录</h3>
+                  <span className="px-2 py-0.5 text-xs bg-red-100 text-red-600 rounded-full">
+                    {anomalyEvents.length} 条
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowAnomalyModal(true)}
+                  className="text-sm text-red-500 hover:text-red-600 flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  新增
+                </button>
+              </div>
+              <div className="space-y-3">
+                {anomalyEvents.map((event) => {
+                  const typeConfig = anomalyTypeOptions.find(t => t.value === event.type);
+                  return (
+                    <div key={event.id} className="bg-red-50 rounded-lg p-4 border border-red-100">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-3">
+                          <div className={`w-8 h-8 rounded-full ${typeConfig?.color || 'bg-gray-500'} flex items-center justify-center flex-shrink-0`}>
+                            <AlertTriangle className="w-4 h-4 text-white" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-gray-800">{event.typeName}</span>
+                              <span className="text-xs text-gray-500">{formatDateTime(event.occurTime)}</span>
+                            </div>
+                            <p className="text-sm text-gray-600 mb-2">{event.description}</p>
+                            <div className="flex items-center gap-4 text-xs text-gray-500">
+                              <span>记录人：{event.operatorName}</span>
+                              {event.handlingResult && (
+                                <span>处理结果：{event.handlingResult}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteAnomaly(event.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-100 rounded transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {task.remarks && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <div className="flex items-center gap-2 mb-4">
@@ -412,26 +554,51 @@ export default function TaskDetail() {
                 </div>
                 <h3 className="text-lg font-semibold text-gray-800">任务时间线</h3>
               </div>
-              <button
-                onClick={() => setShowEditModal(true)}
-                className="text-amber-600 hover:text-amber-700 text-xs font-medium flex items-center gap-1"
-              >
-                <Edit3 className="w-3 h-3" />
-                补录
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAnomalyModal(true)}
+                  className="text-red-500 hover:text-red-600 text-xs font-medium flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  异常
+                </button>
+                <button
+                  onClick={() => setShowEditModal(true)}
+                  className="text-amber-600 hover:text-amber-700 text-xs font-medium flex items-center gap-1"
+                >
+                  <Edit3 className="w-3 h-3" />
+                  补录
+                </button>
+              </div>
             </div>
             <div className="space-y-4">
-              {timelineItems.map((item, index) => (
+              {allTimelineItems.map((item, index) => (
                 <div key={index} className="flex items-start gap-3">
                   <div className="flex flex-col items-center">
-                    <div className={`w-3 h-3 rounded-full ${item.color} mt-1.5`}></div>
-                    {index < timelineItems.length - 1 && (
-                      <div className="w-0.5 flex-1 bg-gray-200 mt-1 min-h-[20px]"></div>
+                    <div className={`w-3 h-3 rounded-full ${item.color} mt-1.5 flex-shrink-0 ${item.type === 'anomaly' ? 'ring-2 ring-red-200' : ''}`}></div>
+                    {index < allTimelineItems.length - 1 && (
+                      <div className={`w-0.5 flex-1 mt-1 min-h-[20px] ${item.type === 'anomaly' ? 'bg-red-200' : 'bg-gray-200'}`}></div>
                     )}
                   </div>
                   <div className="flex-1 pb-1">
-                    <p className="text-sm font-medium text-gray-800">{item.label}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-800">{item.label}</p>
+                      {item.type === 'anomaly' && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs bg-red-100 text-red-600 rounded">
+                          <AlertTriangle className="w-3 h-3" />
+                          异常
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500">{formatDateTime(item.time)}</p>
+                    {item.type === 'anomaly' && item.description && (
+                      <p className="text-xs text-gray-600 mt-1 bg-red-50 rounded p-2">
+                        {item.description}
+                      </p>
+                    )}
+                    {item.type === 'anomaly' && item.operatorName && (
+                      <p className="text-xs text-gray-500 mt-1">记录人：{item.operatorName}</p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -624,6 +791,102 @@ export default function TaskDetail() {
               >
                 <Save className="w-4 h-4" />
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAnomalyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl w-full max-w-lg p-6 m-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-gray-800">记录异常事件</h3>
+              <button
+                onClick={() => setShowAnomalyModal(false)}
+                className="p-1 hover:bg-gray-100 rounded"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">异常类型</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {anomalyTypeOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setAnomalyData({ ...anomalyData, type: option.value })}
+                      className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                        anomalyData.type === option.value
+                          ? 'border-amber-400 bg-amber-50 text-amber-700'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  异常描述 <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={anomalyData.description}
+                  onChange={(e) => setAnomalyData({ ...anomalyData, description: e.target.value })}
+                  placeholder="请详细描述异常情况..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">发生时间</label>
+                <input
+                  type="datetime-local"
+                  value={toLocalInputFormat(anomalyData.occurTime)}
+                  onChange={(e) => setAnomalyData({ ...anomalyData, occurTime: e.target.value })}
+                  className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+                />
+                <p className="text-xs text-gray-400 mt-1">不填则默认当前时间</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  记录人 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={anomalyData.operatorName}
+                  onChange={(e) => setAnomalyData({ ...anomalyData, operatorName: e.target.value })}
+                  placeholder="请输入记录人姓名"
+                  className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">处理结果</label>
+                <textarea
+                  value={anomalyData.handlingResult}
+                  onChange={(e) => setAnomalyData({ ...anomalyData, handlingResult: e.target.value })}
+                  placeholder="请描述处理结果（选填）"
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowAnomalyModal(false)}
+                className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleAddAnomaly}
+                disabled={!anomalyData.description || !anomalyData.operatorName}
+                className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-4 h-4" />
+                保存记录
               </button>
             </div>
           </div>
