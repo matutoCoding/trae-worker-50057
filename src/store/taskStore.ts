@@ -62,13 +62,26 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   updateTaskStatus: (id, status) => {
     const updates: Partial<TransportTask> = { status };
     const task = get().tasks.find((t) => t.id === id);
+    const now = new Date().toISOString();
     
     if (task) {
+      if (status === 'dispatched' && !task.actualStartTime) {
+        updates.actualStartTime = now;
+      }
       if (status === 'in_transit' && !task.actualStartTime) {
-        updates.actualStartTime = new Date().toISOString();
+        updates.actualStartTime = now;
+      }
+      if (status === 'arrived' && !task.arrivalTime) {
+        updates.arrivalTime = now;
+      }
+      if (status === 'transferring' && !task.transferTime) {
+        updates.transferTime = now;
+      }
+      if (status === 'returning' && !task.returnTime) {
+        updates.returnTime = now;
       }
       if (status === 'completed') {
-        updates.actualEndTime = new Date().toISOString();
+        updates.actualEndTime = now;
         if (!updates.mileage && !task.mileage) {
           const start = task.actualStartTime ? new Date(task.actualStartTime) : new Date();
           const end = new Date();

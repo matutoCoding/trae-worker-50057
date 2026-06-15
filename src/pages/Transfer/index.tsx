@@ -1,63 +1,109 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTaskStore } from '@/store/taskStore';
 import { useTransferStore } from '@/store/transferStore';
 import { StatusBadge } from '@/components/StatusBadge';
-import { formatDateTime } from '@/utils';
+import { formatDateTime, formatDate } from '@/utils';
 import {
   FileText,
   User,
   Phone,
   MapPin,
   Clock,
-  CheckCircle,
-  PenTool,
   Search,
+  Calendar,
   Filter,
   Eye,
   FileCheck,
-  Calendar,
+  CheckCircle,
+  XCircle,
+  ArrowLeft,
   FileSignature,
+  ExternalLink,
 } from 'lucide-react';
 
 export default function TransferRegistration() {
-  const { tasks, updateTaskStatus } = useTaskStore();
+  const navigate = useNavigate();
+  const { tasks } = useTaskStore();
   const { transferRecords, addTransferRecord, getRecordsByTaskId } = useTransferStore();
+  
   const [searchText, setSearchText] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [selectedTask, setSelectedTask] = useState<string | null>(null);
+  const [dateFilter, setDateFilter] = useState('');
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [selectedTaskForTransfer, setSelectedTaskForTransfer] = useState('');
+  
   const [handlerName, setHandlerName] = useState('');
   const [transferPlace, setTransferPlace] = useState('');
   const [familyConfirmed, setFamilyConfirmed] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
   const [notes, setNotes] = useState('');
 
-  const transferTasks = tasks.filter(
-    (t) =>
-      t.status === 'arrived' ||
-      t.status === 'transferring' ||
-      t.status === 'returning' ||
-      t.status === 'completed'
-  );
+  const filteredRecords = useMemo(() => {
+    let list = [...transferRecords];
 
-  const filteredTasks = transferTasks.filter((task) => {
-    const matchesSearch =
-      searchText === '' ||
-      task.deceased.name.includes(searchText) ||
-      task.family.name.includes(searchText) ||
-      task.taskNo.includes(searchText);
-    const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+    if (searchText) {
+      list = list.filter(
+        (r) =>
+          r.taskNo.includes(searchText) ||
+          r.deceasedName.includes(searchText) ||
+          r.familyName.includes(searchText) ||
+          r.handlerName.includes(searchText) ||
+          r.transferPlace.includes(searchText)
+      );
+    }
 
-  const handleViewDetail = (taskId: string) => {
-    setSelectedTask(taskId);
+    if (dateFilter) {
+      list = list.filter((r) => r.transferTime.startsWith(dateFilter));
+    }
+
+    return list.sort((a, b) => 
+      new Date(b.transferTime).getTime() - new Date(a.transferTime).getTime()
+    );
+  }, [transferRecords, searchText, dateFilter]);
+
+  const selectedRecord = selectedRecordId
+    ? transferRecords.find((r) => r.id === selectedRecordId)
+    : null;
+  
+  const relatedTask = selectedRecord?.taskId
+    ? tasks.find((t) => t.id === selectedRecord.taskId)
+    : null;
+
+  const handleViewDetail = (recordId: string) => {
+    setSelectedRecordId(recordId);
+  };
+
+  const handleCloseDetail = () => {
+    setSelectedRecordId(null);
+  };
+
+  const handleOpenTaskDetail = (taskId: string) => {
+    navigate(`/tasks/${taskId}`);
+  };
+
+  const handleNewTransfer = () => {
+    setSelectedTaskForTransfer('');
+    setHandlerName('');
+    setTransferPlace('');
+    setFamilyConfirmed(false);
+    setHasSignature(false);
+    setNotes('');
+    setShowConfirmModal(true);
+  };
+
+  const handleTaskSelect = (taskId: string) => {
+    setSelectedTaskForTransfer(taskId);
+    const task = tasks.find((t) => t.id === taskId);
+    if (task) {
+      setTransferPlace(task.pickupAddress);
+    }
   };
 
   const handleConfirmTransfer = () => {
-    if (!selectedTask || !handlerName.trim()) return;
+    if (!selectedTaskForTransfer || !handlerName.trim()) return;
 
-    const task = tasks.find((t) => t.id === selectedTask);
+    const task = tasks.find((t) => t.id === selectedTaskForTransfer);
     if (!task) return;
 
     addTransferRecord({
@@ -74,302 +120,327 @@ export default function TransferRegistration() {
       notes: notes.trim(),
     });
 
-    if (task.status === 'arrived' || task.status === 'transferring') {
-      updateTaskStatus(task.id, 'returning');
-    }
-
     setShowConfirmModal(false);
     setHandlerName('');
     setTransferPlace('');
     setFamilyConfirmed(false);
     setHasSignature(false);
     setNotes('');
+    setSelectedTaskForTransfer('');
   };
 
-  const selectedTaskData = tasks.find((t) => t.id === selectedTask);
-  const selectedTaskRecords = selectedTask ? getRecordsByTaskId(selectedTask) : [];
-  const latestRecord = selectedTaskRecords.length > 0 ? selectedTaskRecords[0] : null;
+  const availableTasks = tasks.filter(
+    (t) =>
+      t.status === 'arrived' ||
+      t.status === 'transferring' ||
+      t.status === 'returning'
+  );
+
+  const getTaskRecords = (taskId: string) => {
+    return getRecordsByTaskId(taskId);
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="搜索交接记录..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              className="w-72 h-10 pl-9 pr-4 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-            />
-          </div>
-          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-1">
-            <Filter className="w-4 h-4 text-gray-400 ml-2" />
-            {['all', 'arrived', 'transferring', 'returning', 'completed'].map((status) => (
-              <button
-                key={status}
-                onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  statusFilter === status
-                    ? 'bg-amber-500 text-white'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {status === 'all'
-                  ? '全部'
-                  : status === 'arrived'
-                  ? '待交接'
-                  : status === 'transferring'
-                  ? '交接中'
-                  : status === 'returning'
-                  ? '返程中'
-                  : '已完成'}
-              </button>
-            ))}
-          </div>
+        <div>
+          <h2 className="text-xl font-bold text-gray-800">交接登记台账</h2>
+          <p className="text-sm text-gray-500 mt-1">共 {filteredRecords.length} 条交接记录</p>
         </div>
-        <div className="text-sm text-gray-500">
-          共 {filteredTasks.length} 条记录
+        <button
+          onClick={handleNewTransfer}
+          className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-medium"
+        >
+          <FileCheck className="w-4 h-4" />
+          新建交接
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="搜索任务编号、逝者姓名、家属、经办人、地点..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            className="w-full h-10 pl-9 pr-4 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-gray-400" />
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="h-10 px-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+          />
+          {dateFilter && (
+            <button
+              onClick={() => setDateFilter('')}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              清除
+            </button>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-800">交接记录列表</h3>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {filteredTasks.map((task) => (
-                <div
-                  key={task.id}
-                  onClick={() => handleViewDetail(task.id)}
-                  className={`p-4 hover:bg-gray-50 transition-colors cursor-pointer ${
-                    selectedTask === task.id ? 'bg-amber-50' : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
-                        <User className="w-5 h-5 text-slate-600" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-800">
-                          {task.deceased.name}
-                          <span className="text-gray-500 text-sm ml-2">
-                            {task.deceased.gender === 'male' ? '男' : '女'} ·{' '}
-                            {task.deceased.age}岁
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      任务编号
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      逝者信息
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      交接时间
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      地点
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      经办人
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      状态
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      操作
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                        <FileText className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                        <p>暂无交接记录</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRecords.map((record) => (
+                      <tr
+                        key={record.id}
+                        className={`hover:bg-gray-50 cursor-pointer ${
+                          selectedRecordId === record.id ? 'bg-amber-50' : ''
+                        }`}
+                        onClick={() => handleViewDetail(record.id)}
+                      >
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-mono text-gray-800">
+                            {record.taskNo}
                           </span>
-                        </p>
-                        <p className="text-xs text-gray-500 font-mono">{task.taskNo}</p>
-                      </div>
-                    </div>
-                    <StatusBadge status={task.status} />
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <MapPin className="w-3.5 h-3.5 text-gray-400" />
-                      <span className="truncate">{task.pickupAddress}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Phone className="w-3.5 h-3.5 text-gray-400" />
-                      <span>{task.family.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Clock className="w-3.5 h-3.5 text-gray-400" />
-                      <span>{formatDateTime(task.createdAt)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">
+                              {record.deceasedName}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              家属：{record.familyName}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-sm text-gray-700">
+                            {formatDateTime(record.transferTime)}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-sm text-gray-700 truncate max-w-[150px]">
+                            {record.transferPlace}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-sm text-gray-700">{record.handlerName}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center gap-1 text-xs">
+                              {record.familyConfirmed ? (
+                                <>
+                                  <CheckCircle className="w-3 h-3 text-green-500" />
+                                  <span className="text-green-600">家属确认</span>
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="w-3 h-3 text-gray-400" />
+                                  <span className="text-gray-500">未确认</span>
+                                </>
+                              )}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-xs">
+                              {record.hasSignature ? (
+                                <>
+                                  <FileSignature className="w-3 h-3 text-green-500" />
+                                  <span className="text-green-600">已签字</span>
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="w-3 h-3 text-gray-400" />
+                                  <span className="text-gray-500">未签字</span>
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewDetail(record.id);
+                            }}
+                            className="text-amber-600 hover:text-amber-700 text-sm font-medium inline-flex items-center gap-1"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            查看
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
-            {filteredTasks.length === 0 && (
-              <div className="py-16 text-center text-gray-400">
-                <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>暂无交接记录</p>
-              </div>
-            )}
           </div>
-
-          {selectedTask && selectedTaskRecords.length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 mt-6 overflow-hidden">
-              <div className="p-4 border-b border-gray-100">
-                <h3 className="font-semibold text-gray-800">交接历史记录</h3>
-              </div>
-              <div className="divide-y divide-gray-100">
-                {selectedTaskRecords.map((record) => (
-                  <div key={record.id} className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <FileSignature className="w-4 h-4 text-amber-500" />
-                        <span className="font-medium text-gray-800">{record.handlerName} 经办</span>
-                      </div>
-                      <span className="text-xs text-gray-500">{formatDateTime(record.transferTime)}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-500">交接地点：</span>
-                        <span className="text-gray-700">{record.transferPlace}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">家属确认：</span>
-                        <span className={record.familyConfirmed ? 'text-green-600' : 'text-gray-500'}>
-                          {record.familyConfirmed ? '已确认' : '未确认'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">签字状态：</span>
-                        <span className={record.hasSignature ? 'text-green-600' : 'text-gray-500'}>
-                          {record.hasSignature ? '已签字' : '未签字'}
-                        </span>
-                      </div>
-                      {record.notes && (
-                        <div className="col-span-2">
-                          <span className="text-gray-500">备注：</span>
-                          <span className="text-gray-700">{record.notes}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         <div>
-          {selectedTaskData ? (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+          {selectedRecord ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 sticky top-6">
               <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="font-semibold text-gray-800">交接单详情</h3>
-                <StatusBadge status={selectedTaskData.status} />
+                <h3 className="font-semibold text-gray-800">交接详情</h3>
+                <button
+                  onClick={handleCloseDetail}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
               </div>
-              <div className="p-4 space-y-4">
+              <div className="p-4 space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
                 <div className="bg-slate-50 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <FileText className="w-4 h-4 text-slate-600" />
-                    <span className="font-medium text-gray-800">医院殡仪交接单</span>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-gray-500">任务编号</span>
+                    <button
+                      onClick={() => handleOpenTaskDetail(selectedRecord.taskId)}
+                      className="text-xs text-amber-600 hover:text-amber-700 flex items-center gap-1"
+                    >
+                      查看任务
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">任务编号</span>
-                      <span className="font-mono text-gray-700">{selectedTaskData.taskNo}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">逝者姓名</span>
-                      <span className="text-gray-700">{selectedTaskData.deceased.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">性别/年龄</span>
-                      <span className="text-gray-700">
-                        {selectedTaskData.deceased.gender === 'male' ? '男' : '女'} ·{' '}
-                        {selectedTaskData.deceased.age}岁
+                  <p className="font-mono text-gray-800">{selectedRecord.taskNo}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">逝者姓名</p>
+                  <p className="font-medium text-gray-800">{selectedRecord.deceasedName}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">家属信息</p>
+                  <p className="text-gray-700">
+                    {selectedRecord.familyName}（{selectedRecord.familyRelation}）
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">交接时间</p>
+                  <p className="text-gray-700">{formatDateTime(selectedRecord.transferTime)}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">交接地点</p>
+                  <div className="flex items-start gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-gray-700 text-sm">{selectedRecord.transferPlace}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">经办人</p>
+                  <p className="text-gray-700">{selectedRecord.handlerName}</p>
+                </div>
+
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">家属信息确认</span>
+                    {selectedRecord.familyConfirmed ? (
+                      <span className="inline-flex items-center gap-1 text-green-600 text-sm">
+                        <CheckCircle className="w-4 h-4" />
+                        已确认
                       </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">死亡原因</span>
-                      <span className="text-gray-700">{selectedTaskData.deceased.causeOfDeath}</span>
-                    </div>
-                    {selectedTaskData.deceased.hospital && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">所在医院</span>
-                        <span className="text-gray-700">{selectedTaskData.deceased.hospital}</span>
-                      </div>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-gray-400 text-sm">
+                        <XCircle className="w-4 h-4" />
+                        未确认
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">家属签字</span>
+                    {selectedRecord.hasSignature ? (
+                      <span className="inline-flex items-center gap-1 text-green-600 text-sm">
+                        <FileSignature className="w-4 h-4" />
+                        已签字
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-gray-400 text-sm">
+                        <XCircle className="w-4 h-4" />
+                        未签字
+                      </span>
                     )}
                   </div>
                 </div>
 
-                <div className="bg-green-50 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <User className="w-4 h-4 text-green-600" />
-                    <span className="font-medium text-gray-800">家属信息核对</span>
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">家属姓名</span>
-                      <span className="text-gray-700">{selectedTaskData.family.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">与逝者关系</span>
-                      <span className="text-gray-700">{selectedTaskData.family.relation}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">联系电话</span>
-                      <span className="text-gray-700">{selectedTaskData.family.phone}</span>
-                    </div>
-                  </div>
-                  {latestRecord && latestRecord.familyConfirmed && (
-                    <div className="mt-3 flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                      <span className="text-sm text-green-700">信息已核对无误</span>
-                    </div>
-                  )}
-                </div>
-
-                {latestRecord && (
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Calendar className="w-4 h-4 text-blue-600" />
-                      <span className="font-medium text-gray-800">上次交接信息</span>
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">交接时间</span>
-                        <span className="text-gray-700">{formatDateTime(latestRecord.transferTime)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">交接地点</span>
-                        <span className="text-gray-700">{latestRecord.transferPlace}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">经办人</span>
-                        <span className="text-gray-700">{latestRecord.handlerName}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">家属签字</span>
-                        <span className={latestRecord.hasSignature ? 'text-green-600' : 'text-gray-500'}>
-                          {latestRecord.hasSignature ? '已签字' : '未签字'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center">
-                  <PenTool className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                  <p className="text-sm text-gray-500">家属签字区域</p>
-                  {latestRecord && latestRecord.hasSignature && (
-                    <div className="mt-2 flex items-center justify-center gap-1 text-green-600">
-                      <CheckCircle className="w-4 h-4" />
-                      <span className="text-sm font-medium">已签字确认</span>
-                    </div>
-                  )}
-                </div>
-
-                {selectedTaskData.remarks && (
+                {selectedRecord.notes && (
                   <div className="bg-amber-50 rounded-lg p-4">
-                    <p className="text-sm font-medium text-gray-800 mb-2">备注</p>
-                    <p className="text-sm text-gray-600">{selectedTaskData.remarks}</p>
+                    <p className="text-sm text-gray-800 font-medium mb-1">备注</p>
+                    <p className="text-sm text-gray-600">{selectedRecord.notes}</p>
                   </div>
                 )}
 
-                {(selectedTaskData.status === 'arrived' ||
-                  selectedTaskData.status === 'transferring') && (
-                  <button
-                    onClick={() => setShowConfirmModal(true)}
-                    className="w-full py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-medium flex items-center justify-center gap-2"
-                  >
-                    <FileCheck className="w-4 h-4" />
-                    确认交接
-                  </button>
+                {relatedTask && (
+                  <div className="border-t border-gray-100 pt-4">
+                    <p className="text-xs text-gray-500 mb-2">关联任务状态</p>
+                    <StatusBadge status={relatedTask.status} />
+                  </div>
+                )}
+
+                {getTaskRecords(selectedRecord.taskId).length > 1 && (
+                  <div className="border-t border-gray-100 pt-4">
+                    <p className="text-xs text-gray-500 mb-2">
+                      该任务共有 {getTaskRecords(selectedRecord.taskId).length} 条交接记录
+                    </p>
+                    <div className="space-y-2">
+                      {getTaskRecords(selectedRecord.taskId)
+                        .filter((r) => r.id !== selectedRecord.id)
+                        .slice(0, 3)
+                        .map((r) => (
+                          <button
+                            key={r.id}
+                            onClick={() => setSelectedRecordId(r.id)}
+                            className="w-full text-left p-2 bg-gray-50 hover:bg-gray-100 rounded text-xs text-gray-600 transition-colors"
+                          >
+                            {formatDateTime(r.transferTime)} · {r.handlerName}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
           ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center sticky top-6">
               <Eye className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">选择一条记录查看详情</p>
+              <p className="text-gray-500 text-sm">选择一条记录查看详情</p>
             </div>
           )}
         </div>
@@ -377,9 +448,29 @@ export default function TransferRegistration() {
 
       {showConfirmModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl w-full max-w-md p-6 m-4">
-            <h3 className="text-lg font-semibold text-gray-800 mb-6">确认交接</h3>
+          <div className="bg-white rounded-xl w-full max-w-lg p-6 m-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-800 mb-6">新建交接登记</h3>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  选择任务 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedTaskForTransfer}
+                  onChange={(e) => handleTaskSelect(e.target.value)}
+                  className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+                >
+                  <option value="">请选择待交接任务</option>
+                  {availableTasks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.taskNo} - {t.deceased.name} ({t.pickupAddress.slice(0, 20)}...)
+                    </option>
+                  ))}
+                </select>
+                {availableTasks.length === 0 && (
+                  <p className="text-xs text-gray-400 mt-1">暂无待交接的任务</p>
+                )}
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   交接地点 <span className="text-red-500">*</span>
@@ -388,7 +479,7 @@ export default function TransferRegistration() {
                   type="text"
                   value={transferPlace}
                   onChange={(e) => setTransferPlace(e.target.value)}
-                  placeholder={selectedTaskData?.pickupAddress}
+                  placeholder="请输入交接地点"
                   className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
                 />
               </div>
@@ -404,7 +495,7 @@ export default function TransferRegistration() {
                   className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
                 />
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-6 pt-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -444,10 +535,10 @@ export default function TransferRegistration() {
               </button>
               <button
                 onClick={handleConfirmTransfer}
-                disabled={!handlerName.trim()}
+                disabled={!selectedTaskForTransfer || !handlerName.trim()}
                 className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                确认交接
+                确认登记
               </button>
             </div>
           </div>

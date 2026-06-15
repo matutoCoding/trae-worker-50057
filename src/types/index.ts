@@ -43,6 +43,9 @@ export interface TransportTask {
   destination: string;
   scheduledTime: string;
   actualStartTime?: string;
+  arrivalTime?: string;
+  transferTime?: string;
+  returnTime?: string;
   actualEndTime?: string;
   mileage?: number;
   vehicleId?: string;
