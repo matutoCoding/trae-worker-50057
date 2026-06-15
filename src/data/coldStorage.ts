@@ -1,0 +1,28 @@
+import type { ColdStorageUnit } from "@/types";
+
+export const mockColdStorage: ColdStorageUnit[] = [
+  { id: '1', cabinetNo: 'A', layer: 1, unitNo: 1, status: 'occupied', deceasedName: '李四', taskId: '2', storageTime: '2026-06-15 14:30' },
+  { id: '2', cabinetNo: 'A', layer: 1, unitNo: 2, status: 'empty' },
+  { id: '3', cabinetNo: 'A', layer: 1, unitNo: 3, status: 'occupied', deceasedName: '王五', taskId: '3', storageTime: '2026-06-15 16:00' },
+  { id: '4', cabinetNo: 'A', layer: 1, unitNo: 4, status: 'empty' },
+  { id: '5', cabinetNo: 'A', layer: 2, unitNo: 1, status: 'occupied', deceasedName: '赵六', taskId: '4', storageTime: '2026-06-14 10:20' },
+  { id: '6', cabinetNo: 'A', layer: 2, unitNo: 2, status: 'empty' },
+  { id: '7', cabinetNo: 'A', layer: 2, unitNo: 3, status: 'reserved', deceasedName: '孙八', taskId: '6', expectedPickupTime: '2026-06-16 18:00' },
+  { id: '8', cabinetNo: 'A', layer: 2, unitNo: 4, status: 'empty' },
+  { id: '9', cabinetNo: 'A', layer: 3, unitNo: 1, status: 'empty' },
+  { id: '10', cabinetNo: 'A', layer: 3, unitNo: 2, status: 'maintenance' },
+  { id: '11', cabinetNo: 'A', layer: 3, unitNo: 3, status: 'empty' },
+  { id: '12', cabinetNo: 'A', layer: 3, unitNo: 4, status: 'empty' },
+  { id: '13', cabinetNo: 'B', layer: 1, unitNo: 1, status: 'occupied', deceasedName: '钱七', taskId: '5', storageTime: '2026-06-14 15:45' },
+  { id: '14', cabinetNo: 'B', layer: 1, unitNo: 2, status: 'empty' },
+  { id: '15', cabinetNo: 'B', layer: 1, unitNo: 3, status: 'empty' },
+  { id: '16', cabinetNo: 'B', layer: 1, unitNo: 4, status: 'occupied', deceasedName: '周九', taskId: '7', storageTime: '2026-06-13 09:00' },
+  { id: '17', cabinetNo: 'B', layer: 2, unitNo: 1, status: 'empty' },
+  { id: '18', cabinetNo: 'B', layer: 2, unitNo: 2, status: 'empty' },
+  { id: '19', cabinetNo: 'B', layer: 2, unitNo: 3, status: 'reserved', deceasedName: '吴十', taskId: '8', expectedPickupTime: '2026-06-16 16:30' },
+  { id: '20', cabinetNo: 'B', layer: 2, unitNo: 4, status: 'empty' },
+  { id: '21', cabinetNo: 'B', layer: 3, unitNo: 1, status: 'empty' },
+  { id: '22', cabinetNo: 'B', layer: 3, unitNo: 2, status: 'empty' },
+  { id: '23', cabinetNo: 'B', layer: 3, unitNo: 3, status: 'maintenance' },
+  { id: '24', cabinetNo: 'B', layer: 3, unitNo: 4, status: 'empty' },
+];
