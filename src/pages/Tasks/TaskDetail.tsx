@@ -28,8 +28,12 @@ import {
   AlertTriangle,
   Plus,
   Trash2,
+  Timer,
+  Check,
+  Loader,
 } from 'lucide-react';
-import type { TaskStatus, TransportTask, AnomalyType, AnomalyEvent } from '@/types';
+import type { TaskStatus, TransportTask, AnomalyType, AnomalyEvent, AnomalyStatus, StageTimeoutInfo } from '@/types';
+import { STAGE_LIMITS } from '@/store/taskStore';
 
 const statusFlow: { status: TaskStatus; label: string; icon: typeof Play }[] = [
   { status: 'dispatched', label: '派发任务', icon: Send },
@@ -52,10 +56,25 @@ const anomalyTypeOptions: { value: AnomalyType; label: string; color: string }[]
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { tasks, updateTaskStatus, assignVehicleAndStaff, updateTask, addAnomalyEvent, deleteAnomalyEvent } = useTaskStore();
+  const { tasks, updateTaskStatus, assignVehicleAndStaff, updateTask, addAnomalyEvent, updateAnomalyEvent, deleteAnomalyEvent, getStageTimeoutInfo } = useTaskStore();
   const { vehicles, getAvailableVehicles, assignToTask, releaseFromTask } = useVehicleStore();
   const { getAvailableDrivers, getAvailableAssistants, staffList } = useStaffStore();
   const { getLatestRecordByTaskId } = useTransferStore();
+
+  const trulyAvailableVehicles = useMemo(() => {
+    const available = getAvailableVehicles();
+    const activeTasks = tasks.filter(t => t.status !== 'completed' && t.status !== 'cancelled' && t.id !== id);
+    const vehicleIdsWithActiveTask = new Set<string>();
+    activeTasks.forEach(t => {
+      if (t.vehicleId) vehicleIdsWithActiveTask.add(t.vehicleId);
+    });
+    vehicles.forEach(v => {
+      if (v.currentTaskId && activeTasks.some(t => t.id === v.currentTaskId)) {
+        vehicleIdsWithActiveTask.add(v.id);
+      }
+    });
+    return available.filter(v => !vehicleIdsWithActiveTask.has(v.id));
+  }, [tasks, vehicles, id]);
   
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -79,6 +98,7 @@ export default function TaskDetail() {
     occurTime: '',
     operatorName: '',
     handlingResult: '',
+    responsiblePerson: '',
   });
 
   const task = tasks.find((t) => t.id === id);
@@ -160,6 +180,20 @@ export default function TaskDetail() {
 
   const anomalyEvents = task?.anomalyEvents || [];
 
+  const stageTimeoutInfo = useMemo(() => {
+    if (!task) return [] as StageTimeoutInfo[];
+    return getStageTimeoutInfo(task);
+  }, [task]);
+
+  const handleAnomalyStatusChange = (eventId: string, newStatus: AnomalyStatus) => {
+    if (!task?.id) return;
+    const updates: Partial<AnomalyEvent> = { status: newStatus };
+    if (newStatus === 'resolved') {
+      updates.resolvedTime = new Date().toISOString();
+    }
+    updateAnomalyEvent(task.id, eventId, updates);
+  };
+
   const allTimelineItems = useMemo(() => {
     const items: Array<{
       label: string;
@@ -204,6 +238,7 @@ export default function TaskDetail() {
       operatorName: anomalyData.operatorName,
       handlingResult: anomalyData.handlingResult || undefined,
       occurTime: anomalyData.occurTime || undefined,
+      responsiblePerson: anomalyData.responsiblePerson || undefined,
     });
 
     setShowAnomalyModal(false);
@@ -213,6 +248,7 @@ export default function TaskDetail() {
       occurTime: '',
       operatorName: '',
       handlingResult: '',
+      responsiblePerson: '',
     });
   };
 
@@ -431,6 +467,60 @@ export default function TaskDetail() {
             </div>
           )}
 
+          {stageTimeoutInfo.length > 0 && stageTimeoutInfo.some(s => s.isTimeout) && (
+            <div className="bg-white rounded-xl shadow-sm border border-red-100 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                  <Timer className="w-4 h-4 text-red-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800">时效预警</h3>
+              </div>
+              <div className="space-y-3">
+                {stageTimeoutInfo.map((stage) => (
+                  <div
+                    key={stage.stage}
+                    className={`flex items-center justify-between p-3 rounded-lg ${
+                      stage.isTimeout ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        stage.isTimeout ? 'bg-red-500' : 'bg-green-500'
+                      }`}>
+                        {stage.isTimeout ? (
+                          <AlertTriangle className="w-4 h-4 text-white" />
+                        ) : (
+                          <CheckCircle className="w-4 h-4 text-white" />
+                        )}
+                      </div>
+                      <div>
+                        <p className={`text-sm font-medium ${stage.isTimeout ? 'text-red-800' : 'text-gray-800'}`}>
+                          {stage.stageLabel}阶段
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          时效标准：{stage.limitMinutes}分钟
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-sm font-bold ${stage.isTimeout ? 'text-red-600' : 'text-green-600'}`}>
+                        {stage.elapsedMinutes} 分钟
+                      </p>
+                      {stage.isTimeout && (
+                        <p className="text-xs text-red-500">
+                          超时 {stage.elapsedMinutes - stage.limitMinutes} 分钟
+                        </p>
+                      )}
+                      {!stage.isTimeout && (
+                        <p className="text-xs text-green-500">在时效内</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {anomalyEvents.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-red-100 p-6">
               <div className="flex items-center justify-between mb-6">
@@ -464,23 +554,64 @@ export default function TaskDetail() {
                           <div>
                             <div className="flex items-center gap-2 mb-1">
                               <span className="font-medium text-gray-800">{event.typeName}</span>
+                              {event.status === 'pending' && (
+                                <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded-full">待处理</span>
+                              )}
+                              {event.status === 'processing' && (
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full flex items-center gap-1">
+                                  <Loader className="w-3 h-3" />
+                                  处理中
+                                </span>
+                              )}
+                              {event.status === 'resolved' && (
+                                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full flex items-center gap-1">
+                                  <Check className="w-3 h-3" />
+                                  已解决
+                                </span>
+                              )}
                               <span className="text-xs text-gray-500">{formatDateTime(event.occurTime)}</span>
                             </div>
                             <p className="text-sm text-gray-600 mb-2">{event.description}</p>
                             <div className="flex items-center gap-4 text-xs text-gray-500">
                               <span>记录人：{event.operatorName}</span>
+                              {event.responsiblePerson && (
+                                <span>负责人：{event.responsiblePerson}</span>
+                              )}
                               {event.handlingResult && (
                                 <span>处理结果：{event.handlingResult}</span>
+                              )}
+                              {event.resolvedTime && (
+                                <span>解决时间：{formatDateTime(event.resolvedTime)}</span>
                               )}
                             </div>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleDeleteAnomaly(event.id)}
-                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-100 rounded transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          {event.status === 'pending' && (
+                            <button
+                              onClick={() => handleAnomalyStatusChange(event.id, 'processing')}
+                              className="p-1.5 text-blue-500 hover:bg-blue-100 rounded transition-colors"
+                              title="标记处理中"
+                            >
+                              <Loader className="w-4 h-4" />
+                            </button>
+                          )}
+                          {event.status === 'processing' && (
+                            <button
+                              onClick={() => handleAnomalyStatusChange(event.id, 'resolved')}
+                              className="p-1.5 text-green-500 hover:bg-green-100 rounded transition-colors"
+                              title="标记已解决"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteAnomaly(event.id)}
+                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-100 rounded transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -620,7 +751,7 @@ export default function TaskDetail() {
                   className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
                 >
                   <option value="">请选择车辆</option>
-                  {getAvailableVehicles().map((v) => (
+                  {trulyAvailableVehicles.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.plateNo} - {v.model}
                     </option>
@@ -861,6 +992,21 @@ export default function TaskDetail() {
                   placeholder="请输入记录人姓名"
                   className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">负责人</label>
+                <select
+                  value={anomalyData.responsiblePerson}
+                  onChange={(e) => setAnomalyData({ ...anomalyData, responsiblePerson: e.target.value })}
+                  className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+                >
+                  <option value="">请选择负责人（选填）</option>
+                  {staffList.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name} - {s.role === 'driver' ? '司机' : s.role === 'assistant' ? '接运员' : s.role === 'dispatcher' ? '调度员' : '管理员'}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">处理结果</label>

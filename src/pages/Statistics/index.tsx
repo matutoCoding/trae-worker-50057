@@ -55,7 +55,7 @@ const ROLE_NAMES: Record<string, string> = {
 };
 
 export default function Statistics() {
-  const { tasks, getTasksByDateRange, getAnomalyCountByDateRange } = useTaskStore();
+  const { tasks, getTasksByDateRange, getAnomalyCountByDateRange, getAnomaliesByDateRange, getUnresolvedAnomalyCount, getAverageResolutionTime } = useTaskStore();
   const { vehicles } = useVehicleStore();
   const { staffList } = useStaffStore();
   const { transferRecords } = useTransferStore();
@@ -109,16 +109,22 @@ export default function Statistics() {
     return getAnomalyCountByDateRange(start, end);
   }, [timeRange, tasks]);
 
+  const rangeAnomalies = useMemo(() => {
+    const { start, end } = getDateRange();
+    return getAnomaliesByDateRange(start, end);
+  }, [timeRange, tasks]);
+
+  const unresolvedAnomalyCount = useMemo(() => getUnresolvedAnomalyCount(), [tasks]);
+  const averageResolutionTime = useMemo(() => getAverageResolutionTime(), [tasks]);
+
   const anomalyByType = useMemo(() => {
     const counts: Record<string, number> = {};
-    completedTasks.forEach(task => {
-      (task.anomalyEvents || []).forEach(event => {
-        const name = ANOMALY_TYPE_NAMES[event.type] || event.type;
-        counts[name] = (counts[name] || 0) + 1;
-      });
+    rangeAnomalies.forEach(event => {
+      const name = ANOMALY_TYPE_NAMES[event.type] || event.type;
+      counts[name] = (counts[name] || 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [completedTasks]);
+  }, [rangeAnomalies]);
 
   const vehicleUsageDetails = useMemo((): VehicleUsageDetail[] => {
     const { start, end } = getDateRange();
@@ -269,7 +275,10 @@ export default function Statistics() {
         
         const dayCompleted = dayTasks.filter((t) => t.status === 'completed');
         const dayMileage = dayCompleted.reduce((sum, t) => sum + (t.mileage || 0), 0);
-        const dayAnomaly = dayTasks.reduce((sum, t) => sum + (t.anomalyEvents?.length || 0), 0);
+        const dayAnomaly = dayTasks.reduce((sum, t) => sum + (t.anomalyEvents?.filter(e => {
+          const eventDate = new Date(e.occurTime).toISOString().split('T')[0];
+          return eventDate === dateStr;
+        }).length || 0), 0);
         
         data.push({
           label: `${date.getMonth() + 1}/${date.getDate()}`,
@@ -286,7 +295,10 @@ export default function Statistics() {
         const dayTasks = rangeTasks.filter((t) => t.createdAt.split('T')[0] === dateStr);
         const dayCompleted = dayTasks.filter((t) => t.status === 'completed');
         const dayMileage = dayCompleted.reduce((sum, t) => sum + (t.mileage || 0), 0);
-        const dayAnomaly = dayTasks.reduce((sum, t) => sum + (t.anomalyEvents?.length || 0), 0);
+        const dayAnomaly = dayTasks.reduce((sum, t) => sum + (t.anomalyEvents?.filter(e => {
+          const eventDate = new Date(e.occurTime).toISOString().split('T')[0];
+          return eventDate === dateStr;
+        }).length || 0), 0);
         
         data.push({
           label: `${i}日`,
@@ -304,7 +316,10 @@ export default function Statistics() {
         });
         const monthCompleted = monthTasks.filter((t) => t.status === 'completed');
         const monthMileage = monthCompleted.reduce((sum, t) => sum + (t.mileage || 0), 0);
-        const monthAnomaly = monthTasks.reduce((sum, t) => sum + (t.anomalyEvents?.length || 0), 0);
+        const monthAnomaly = monthTasks.reduce((sum, t) => sum + (t.anomalyEvents?.filter(e => {
+          const eventMonth = new Date(e.occurTime).getMonth();
+          return eventMonth === i;
+        }).length || 0), 0);
         
         data.push({
           label: `${i + 1}月`,
@@ -377,6 +392,7 @@ export default function Statistics() {
       '冷藏柜位',
       '异常事件数',
       '异常事件类型',
+      '异常处理状态',
       '创建时间',
     ];
 
@@ -387,6 +403,8 @@ export default function Statistics() {
       const taskTransferRecords = transferRecords.filter((r) => r.taskId === task.id);
       const storageUnit = units.find((u) => u.taskId === task.id);
       const anomalyTypes = (task.anomalyEvents || []).map(e => ANOMALY_TYPE_NAMES[e.type]).join('; ');
+      const aStatusMap: Record<string, string> = { pending: '待处理', processing: '处理中', resolved: '已解决' };
+      const anomalyStatuses = (task.anomalyEvents || []).map(e => `${ANOMALY_TYPE_NAMES[e.type]}:${aStatusMap[e.status] || '待处理'}`).join('; ');
 
       const statusMap: Record<string, string> = {
         pending: '待派发',
@@ -399,7 +417,7 @@ export default function Statistics() {
         cancelled: '已取消',
       };
 
-      return [
+      const cells = [
         task.taskNo,
         task.deceased.name,
         task.deceased.gender === 'male' ? '男' : '女',
@@ -420,14 +438,19 @@ export default function Statistics() {
         storageUnit ? `${storageUnit.cabinetNo}柜${storageUnit.layer}层${storageUnit.unitNo}号` : '',
         task.anomalyEvents?.length || 0,
         anomalyTypes || '',
+        anomalyStatuses || '',
         formatDateTime(task.createdAt),
-      ].map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',');
+      ];
+      return cells.map((cell) => {
+        const s = String(cell).replace(/"/g, '""');
+        return '"' + s + '"';
+      }).join(',');
     });
 
     const rangeLabel = timeRange === 'week' ? '本周' : timeRange === 'month' ? '本月' : '本年';
     
     const summaryHeaders = [
-      '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+      '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
     ];
     const summaryRows: string[] = [];
     
@@ -456,11 +479,19 @@ export default function Statistics() {
     ].map((cell, i) => i === 0 || i === 1 ? `"${cell}"` : '').join(','));
     
     summaryRows.push([
-      '异常事件数', anomalyCount, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+      '异常事件数', anomalyCount, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
     ].map((cell, i) => i === 0 || i === 1 ? `"${cell}"` : '').join(','));
     
     summaryRows.push([
-      '任务完成率', rangeTasks.length > 0 ? `${Math.round((completedTasks.length / rangeTasks.length) * 100)}%` : '-', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+      '未处理异常数', unresolvedAnomalyCount, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+    ].map((cell, i) => i === 0 || i === 1 ? `"${cell}"` : '').join(','));
+    
+    summaryRows.push([
+      '平均异常处理时长(分钟)', averageResolutionTime, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+    ].map((cell, i) => i === 0 || i === 1 ? `"${cell}"` : '').join(','));
+    
+    summaryRows.push([
+      '任务完成率', rangeTasks.length > 0 ? `${Math.round((completedTasks.length / rangeTasks.length) * 100)}%` : '-', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
     ].map((cell, i) => i === 0 || i === 1 ? `"${cell}"` : '').join(','));
 
     summaryRows.push(['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
@@ -595,8 +626,8 @@ export default function Statistics() {
           </div>
           <p className="text-3xl font-bold text-gray-800">{anomalyCount}</p>
           <p className="text-sm text-gray-500 mt-1">异常事件</p>
-          <p className="text-xs text-gray-400 mt-2">
-            异常率 {rangeTasks.length > 0 ? ((anomalyCount / rangeTasks.length) * 100).toFixed(1) : '0'}%
+          <p className="text-xs text-red-600 mt-2">
+            未处理 {unresolvedAnomalyCount} 条{averageResolutionTime > 0 ? ` · 平均处理 ${averageResolutionTime} 分钟` : ''}
           </p>
         </div>
       </div>
@@ -657,7 +688,7 @@ export default function Statistics() {
         </div>
       </div>
 
-      {anomalyByType.length > 0 && (
+      {(anomalyByType.length > 0 || unresolvedAnomalyCount > 0) && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-semibold text-gray-800">异常事件类型分布</h3>
@@ -897,7 +928,7 @@ export default function Statistics() {
           <h3 className="font-semibold text-gray-800">关键指标</h3>
           <FileSpreadsheet className="w-5 h-5 text-gray-400" />
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-6">
           <div className="text-center">
             <p className="text-2xl font-bold text-amber-600">{avgMileage}</p>
             <p className="text-sm text-gray-500 mt-1">平均单次里程 (km)</p>
@@ -919,6 +950,10 @@ export default function Statistics() {
           <div className="text-center">
             <p className="text-2xl font-bold text-red-600">{anomalyCount}</p>
             <p className="text-sm text-gray-500 mt-1">异常事件数</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-orange-600">{unresolvedAnomalyCount}</p>
+            <p className="text-sm text-gray-500 mt-1">未处理异常数</p>
           </div>
         </div>
       </div>

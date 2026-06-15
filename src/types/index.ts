@@ -26,6 +26,8 @@ export type AnomalyType =
   | 'delay' 
   | 'other';
 
+export type AnomalyStatus = 'pending' | 'processing' | 'resolved';
+
 export type ExpiryStatus = 'normal' | 'approaching' | 'overdue';
 
 export interface DeceasedInfo {
@@ -52,6 +54,9 @@ export interface AnomalyEvent {
   occurTime: string;
   operatorName: string;
   handlingResult?: string;
+  status: AnomalyStatus;
+  responsiblePerson?: string;
+  resolvedTime?: string;
 }
 
 export interface TransportTask {
@@ -184,4 +189,23 @@ export interface StaffWorkloadDetail {
   taskCount: number;
   totalMileage: number;
   totalDurationMinutes: number;
+}
+
+export interface StageTimeoutInfo {
+  stage: string;
+  stageLabel: string;
+  startTime: string;
+  limitMinutes: number;
+  elapsedMinutes: number;
+  isTimeout: boolean;
+}
+
+export interface TaskTimeoutInfo {
+  taskId: string;
+  taskNo: string;
+  deceasedName: string;
+  currentStage: string;
+  currentStageLabel: string;
+  timeoutStages: StageTimeoutInfo[];
+  hasTimeout: boolean;
 }

@@ -21,15 +21,16 @@ import {
   ClipboardCheck,
   ArrowLeftRight,
   XCircle,
+  Timer,
 } from 'lucide-react';
-import type { VehicleStatus, TransportTask, TaskVehicleReconciliation } from '@/types';
+import type { VehicleStatus, TransportTask, TaskVehicleReconciliation, TaskTimeoutInfo } from '@/types';
 
 type ViewMode = 'dispatch' | 'reconciliation';
 
 export default function VehicleDispatch() {
   const navigate = useNavigate();
   const { vehicles, assignToTask, releaseFromTask, updateVehicle } = useVehicleStore();
-  const { tasks, updateTask } = useTaskStore();
+  const { tasks, updateTask, getTimeoutTasks } = useTaskStore();
   const { staffList } = useStaffStore();
   const [searchText, setSearchText] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('dispatch');
@@ -39,6 +40,21 @@ export default function VehicleDispatch() {
       t.status !== 'completed' && t.status !== 'cancelled'
     );
   }, [tasks]);
+
+  const timeoutTasks = useMemo(() => getTimeoutTasks(), [tasks]);
+
+  const vehicleIdsWithActiveTask = useMemo(() => {
+    const ids = new Set<string>();
+    activeTasks.forEach(t => {
+      if (t.vehicleId) ids.add(t.vehicleId);
+    });
+    vehicles.forEach(v => {
+      if (v.currentTaskId && activeTasks.some(t => t.id === v.currentTaskId)) {
+        ids.add(v.id);
+      }
+    });
+    return ids;
+  }, [activeTasks, vehicles]);
 
   const reconciliationData = useMemo((): TaskVehicleReconciliation[] => {
     const results: TaskVehicleReconciliation[] = [];
@@ -122,11 +138,10 @@ export default function VehicleDispatch() {
   const idleVehicles = useMemo(() => {
     return vehicles.filter((v) => {
       if (v.status !== 'idle') return false;
-      const hasActiveTask = activeTasks.some(t => t.vehicleId === v.id);
-      if (hasActiveTask) return false;
+      if (vehicleIdsWithActiveTask.has(v.id)) return false;
       return true;
     });
-  }, [vehicles, activeTasks]);
+  }, [vehicles, vehicleIdsWithActiveTask]);
 
   const onDutyVehicles = useMemo(() => {
     return vehicles.filter((v) => v.status === 'on_duty');
@@ -549,6 +564,41 @@ export default function VehicleDispatch() {
               >
                 去修正
               </button>
+            </div>
+          )}
+
+          {timeoutTasks.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Timer className="w-5 h-5 text-red-600" />
+                  <h3 className="font-semibold text-red-800">
+                    {timeoutTasks.length} 个任务超时预警
+                  </h3>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {timeoutTasks.slice(0, 6).map((info) => (
+                  <div
+                    key={info.taskId}
+                    onClick={() => navigate(`/tasks/${info.taskId}`)}
+                    className="flex items-center gap-3 p-3 bg-white rounded-lg border border-red-100 cursor-pointer hover:bg-red-50 transition-colors"
+                  >
+                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Timer className="w-5 h-5 text-red-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {info.taskNo} · {info.deceasedName}
+                      </p>
+                      <p className="text-xs text-red-600">
+                        {info.timeoutStages.map(s => `${s.stageLabel}超${s.elapsedMinutes - s.limitMinutes}分钟`).join('、')}
+                      </p>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

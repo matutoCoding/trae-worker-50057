@@ -8,7 +8,7 @@ const RECORDS_KEY = 'storageRecords';
 const EXPIRY_WARNING_DAYS = 3;
 
 function calculateExpiry(unit: ColdStorageUnit, now: Date): ColdStorageUnit {
-  if (!unit.expectedPickupTime || unit.status !== 'occupied') {
+  if (!unit.expectedPickupTime || (unit.status !== 'occupied' && unit.status !== 'reserved')) {
     return { ...unit, expiryStatus: 'normal' as ExpiryStatus, daysRemaining: undefined };
   }
 

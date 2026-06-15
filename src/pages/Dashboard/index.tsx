@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTaskStore } from '@/store/taskStore';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { useStaffStore } from '@/store/staffStore';
@@ -22,13 +22,14 @@ import {
   Bell,
   CalendarClock,
   AlertOctagon,
+  Timer,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import type { ColdStorageUnit } from '@/types';
+import type { ColdStorageUnit, TaskTimeoutInfo } from '@/types';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { tasks, getTodayTasks } = useTaskStore();
+  const { tasks, getTodayTasks, getTimeoutTasks, getUnresolvedAnomalyCount } = useTaskStore();
   const { vehicles, getAvailableVehicles } = useVehicleStore();
   const { staffList, getAvailableDrivers, getAvailableAssistants } = useStaffStore();
   const { units, getOccupiedUnits, getAvailableUnits, getExpiringUnits, getOverdueUnits, getApproachingUnits, refreshExpiryStatus } = useColdStorageStore();
@@ -46,6 +47,9 @@ export default function Dashboard() {
   const handleExpiryClick = (unit: ColdStorageUnit) => {
     navigate('/cold-storage', { state: { unitId: unit.id, cabinetNo: unit.cabinetNo } });
   };
+
+  const timeoutTasks = useMemo(() => getTimeoutTasks(), [tasks]);
+  const unresolvedAnomalyCount = useMemo(() => getUnresolvedAnomalyCount(), [tasks]);
 
   const todayTasks = getTodayTasks();
   const pendingTasks = tasks.filter((t) => t.status === 'pending');
@@ -123,6 +127,76 @@ export default function Dashboard() {
           );
         })}
       </div>
+
+      {(timeoutTasks.length > 0 || unresolvedAnomalyCount > 0) && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Timer className="w-5 h-5 text-red-500" />
+              <h2 className="text-lg font-semibold text-gray-800">时效预警</h2>
+            </div>
+            <button
+              onClick={() => navigate('/vehicles')}
+              className="text-sm text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1"
+            >
+              调度台 <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {timeoutTasks.slice(0, 6).map((info) => (
+              <div
+                key={info.taskId}
+                onClick={() => navigate(`/tasks/${info.taskId}`)}
+                className="flex items-center gap-4 p-4 bg-red-50 border border-red-200 rounded-lg cursor-pointer hover:bg-red-100 transition-colors"
+              >
+                <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Timer className="w-6 h-6 text-red-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-medium rounded-full">
+                      超时
+                    </span>
+                    <span className="text-sm font-medium text-gray-800 truncate">
+                      {info.taskNo}
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-800 truncate">
+                    {info.deceasedName}
+                  </p>
+                  <p className="text-xs text-red-600">
+                    {info.currentStageLabel}阶段超时 ·
+                    {info.timeoutStages.map(s => `${s.stageLabel}超${s.elapsedMinutes - s.limitMinutes}分钟`).join('、')}
+                  </p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-red-400 flex-shrink-0" />
+              </div>
+            ))}
+            {unresolvedAnomalyCount > 0 && (
+              <div
+                onClick={() => navigate('/statistics')}
+                className="flex items-center gap-4 p-4 bg-orange-50 border border-orange-200 rounded-lg cursor-pointer hover:bg-orange-100 transition-colors"
+              >
+                <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-6 h-6 text-orange-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 bg-orange-500 text-white text-xs font-medium rounded-full">
+                      异常
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-orange-800">
+                    {unresolvedAnomalyCount} 条未处理异常
+                  </p>
+                  <p className="text-xs text-orange-600">点击查看统计分析</p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-orange-400 flex-shrink-0" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {expiringUnits.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
