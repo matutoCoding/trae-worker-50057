@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTaskStore } from '@/store/taskStore';
+import { useTransferStore } from '@/store/transferStore';
 import { StatusBadge } from '@/components/StatusBadge';
 import { formatDateTime } from '@/utils';
 import {
@@ -14,13 +15,22 @@ import {
   Filter,
   Eye,
   FileCheck,
+  Calendar,
+  FileSignature,
 } from 'lucide-react';
 
 export default function TransferRegistration() {
-  const { tasks } = useTaskStore();
+  const { tasks, updateTaskStatus } = useTaskStore();
+  const { transferRecords, addTransferRecord, getRecordsByTaskId } = useTransferStore();
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [handlerName, setHandlerName] = useState('');
+  const [transferPlace, setTransferPlace] = useState('');
+  const [familyConfirmed, setFamilyConfirmed] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  const [notes, setNotes] = useState('');
 
   const transferTasks = tasks.filter(
     (t) =>
@@ -44,7 +54,41 @@ export default function TransferRegistration() {
     setSelectedTask(taskId);
   };
 
+  const handleConfirmTransfer = () => {
+    if (!selectedTask || !handlerName.trim()) return;
+
+    const task = tasks.find((t) => t.id === selectedTask);
+    if (!task) return;
+
+    addTransferRecord({
+      taskId: task.id,
+      taskNo: task.taskNo,
+      deceasedName: task.deceased.name,
+      familyName: task.family.name,
+      familyRelation: task.family.relation,
+      transferTime: new Date().toISOString(),
+      transferPlace: transferPlace.trim() || task.pickupAddress,
+      handlerName: handlerName.trim(),
+      familyConfirmed,
+      hasSignature,
+      notes: notes.trim(),
+    });
+
+    if (task.status === 'arrived' || task.status === 'transferring') {
+      updateTaskStatus(task.id, 'returning');
+    }
+
+    setShowConfirmModal(false);
+    setHandlerName('');
+    setTransferPlace('');
+    setFamilyConfirmed(false);
+    setHasSignature(false);
+    setNotes('');
+  };
+
   const selectedTaskData = tasks.find((t) => t.id === selectedTask);
+  const selectedTaskRecords = selectedTask ? getRecordsByTaskId(selectedTask) : [];
+  const latestRecord = selectedTaskRecords.length > 0 ? selectedTaskRecords[0] : null;
 
   return (
     <div className="space-y-6">
@@ -62,7 +106,7 @@ export default function TransferRegistration() {
           </div>
           <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-1">
             <Filter className="w-4 h-4 text-gray-400 ml-2" />
-            {['all', 'arrived', 'transferring', 'completed'].map((status) => (
+            {['all', 'arrived', 'transferring', 'returning', 'completed'].map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
@@ -78,10 +122,15 @@ export default function TransferRegistration() {
                   ? '待交接'
                   : status === 'transferring'
                   ? '交接中'
+                  : status === 'returning'
+                  ? '返程中'
                   : '已完成'}
               </button>
             ))}
           </div>
+        </div>
+        <div className="text-sm text-gray-500">
+          共 {filteredTasks.length} 条记录
         </div>
       </div>
 
@@ -142,6 +191,51 @@ export default function TransferRegistration() {
               </div>
             )}
           </div>
+
+          {selectedTask && selectedTaskRecords.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 mt-6 overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-800">交接历史记录</h3>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {selectedTaskRecords.map((record) => (
+                  <div key={record.id} className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <FileSignature className="w-4 h-4 text-amber-500" />
+                        <span className="font-medium text-gray-800">{record.handlerName} 经办</span>
+                      </div>
+                      <span className="text-xs text-gray-500">{formatDateTime(record.transferTime)}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">交接地点：</span>
+                        <span className="text-gray-700">{record.transferPlace}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">家属确认：</span>
+                        <span className={record.familyConfirmed ? 'text-green-600' : 'text-gray-500'}>
+                          {record.familyConfirmed ? '已确认' : '未确认'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">签字状态：</span>
+                        <span className={record.hasSignature ? 'text-green-600' : 'text-gray-500'}>
+                          {record.hasSignature ? '已签字' : '未签字'}
+                        </span>
+                      </div>
+                      {record.notes && (
+                        <div className="col-span-2">
+                          <span className="text-gray-500">备注：</span>
+                          <span className="text-gray-700">{record.notes}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div>
@@ -205,16 +299,47 @@ export default function TransferRegistration() {
                       <span className="text-gray-700">{selectedTaskData.family.phone}</span>
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span className="text-sm text-green-700">信息已核对无误</span>
-                  </div>
+                  {latestRecord && latestRecord.familyConfirmed && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <span className="text-sm text-green-700">信息已核对无误</span>
+                    </div>
+                  )}
                 </div>
+
+                {latestRecord && (
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Calendar className="w-4 h-4 text-blue-600" />
+                      <span className="font-medium text-gray-800">上次交接信息</span>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">交接时间</span>
+                        <span className="text-gray-700">{formatDateTime(latestRecord.transferTime)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">交接地点</span>
+                        <span className="text-gray-700">{latestRecord.transferPlace}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">经办人</span>
+                        <span className="text-gray-700">{latestRecord.handlerName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">家属签字</span>
+                        <span className={latestRecord.hasSignature ? 'text-green-600' : 'text-gray-500'}>
+                          {latestRecord.hasSignature ? '已签字' : '未签字'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center">
                   <PenTool className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                   <p className="text-sm text-gray-500">家属签字区域</p>
-                  {selectedTaskData.status === 'completed' && (
+                  {latestRecord && latestRecord.hasSignature && (
                     <div className="mt-2 flex items-center justify-center gap-1 text-green-600">
                       <CheckCircle className="w-4 h-4" />
                       <span className="text-sm font-medium">已签字确认</span>
@@ -231,7 +356,10 @@ export default function TransferRegistration() {
 
                 {(selectedTaskData.status === 'arrived' ||
                   selectedTaskData.status === 'transferring') && (
-                  <button className="w-full py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-medium flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => setShowConfirmModal(true)}
+                    className="w-full py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-medium flex items-center justify-center gap-2"
+                  >
                     <FileCheck className="w-4 h-4" />
                     确认交接
                   </button>
@@ -246,6 +374,85 @@ export default function TransferRegistration() {
           )}
         </div>
       </div>
+
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl w-full max-w-md p-6 m-4">
+            <h3 className="text-lg font-semibold text-gray-800 mb-6">确认交接</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  交接地点 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={transferPlace}
+                  onChange={(e) => setTransferPlace(e.target.value)}
+                  placeholder={selectedTaskData?.pickupAddress}
+                  className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  经办人 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={handlerName}
+                  onChange={(e) => setHandlerName(e.target.value)}
+                  placeholder="请输入经办人姓名"
+                  className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={familyConfirmed}
+                    onChange={(e) => setFamilyConfirmed(e.target.checked)}
+                    className="w-4 h-4 text-amber-500 rounded focus:ring-amber-400"
+                  />
+                  <span className="text-sm text-gray-700">家属已确认信息</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={hasSignature}
+                    onChange={(e) => setHasSignature(e.target.checked)}
+                    className="w-4 h-4 text-amber-500 rounded focus:ring-amber-400"
+                  />
+                  <span className="text-sm text-gray-700">家属已签字</span>
+                </label>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">备注</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="可选：填写交接备注"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmTransfer}
+                disabled={!handlerName.trim()}
+                className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确认交接
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

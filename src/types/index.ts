@@ -84,13 +84,16 @@ export interface ScheduleRecord {
 export interface TransferRecord {
   id: string;
   taskId: string;
+  taskNo: string;
+  deceasedName: string;
   transferTime: string;
   transferPlace: string;
   handlerName: string;
   familyName: string;
   familyRelation: string;
+  familyConfirmed: boolean;
   hasSignature: boolean;
-  remarks: string;
+  notes: string;
 }
 
 export interface ColdStorageUnit {
@@ -103,6 +106,17 @@ export interface ColdStorageUnit {
   deceasedName?: string;
   storageTime?: string;
   expectedPickupTime?: string;
+}
+
+export interface StorageRecord {
+  id: string;
+  unitId: string;
+  cabinetNo: string;
+  deceasedName: string;
+  taskId?: string;
+  type: 'in' | 'out';
+  operateTime: string;
+  operator?: string;
 }
 
 export interface StatisticsData {

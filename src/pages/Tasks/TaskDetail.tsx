@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTaskStore } from '@/store/taskStore';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { useStaffStore } from '@/store/staffStore';
+import { useTransferStore } from '@/store/transferStore';
 import { StatusBadge } from '@/components/StatusBadge';
-import { formatDateTime, roleMap } from '@/utils';
+import { formatDateTime } from '@/utils';
 import {
   ArrowLeft,
   User,
@@ -15,13 +16,11 @@ import {
   FileText,
   Edit,
   CheckCircle,
-  XCircle,
   Send,
   Play,
   Navigation,
-  PackageCheck,
   ArrowRightLeft,
-  LogIn,
+  PackageCheck,
 } from 'lucide-react';
 import type { TaskStatus } from '@/types';
 
@@ -38,8 +37,9 @@ export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { tasks, updateTaskStatus, assignVehicleAndStaff } = useTaskStore();
-  const { vehicles, getAvailableVehicles } = useVehicleStore();
+  const { vehicles, getAvailableVehicles, assignToTask, releaseFromTask } = useVehicleStore();
   const { getAvailableDrivers, getAvailableAssistants, staffList } = useStaffStore();
+  const { getLatestRecordByTaskId } = useTransferStore();
   
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState('');
@@ -65,6 +65,7 @@ export default function TaskDetail() {
   const vehicle = vehicles.find((v) => v.id === task.vehicleId);
   const driver = staffList.find((s) => s.id === task.driverId);
   const assistant = staffList.find((s) => s.id === task.assistantId);
+  const latestTransfer = getLatestRecordByTaskId(task.id);
 
   const currentStatusIndex = statusFlow.findIndex((s) => s.status === task.status);
   const canAdvance = task.status !== 'completed' && task.status !== 'cancelled';
@@ -72,14 +73,24 @@ export default function TaskDetail() {
 
   const handleAssign = () => {
     if (selectedVehicle && selectedDriver && selectedAssistant) {
+      const driverInfo = staffList.find((s) => s.id === selectedDriver);
+      
       assignVehicleAndStaff(task.id, selectedVehicle, selectedDriver, selectedAssistant);
+      assignToTask(selectedVehicle, task.id, driverInfo?.name || '');
+      
       setShowAssignModal(false);
     }
   };
 
   const handleStatusAdvance = () => {
     if (nextStatus) {
-      updateTaskStatus(task.id, nextStatus.status);
+      if (nextStatus.status === 'completed' && task.vehicleId) {
+        updateTaskStatus(task.id, nextStatus.status);
+        const updatedTask = useTaskStore.getState().tasks.find((t) => t.id === task.id);
+        releaseFromTask(task.vehicleId, updatedTask?.mileage);
+      } else {
+        updateTaskStatus(task.id, nextStatus.status);
+      }
     }
   };
 
@@ -228,6 +239,37 @@ export default function TaskDetail() {
               )}
             </div>
           </div>
+
+          {latestTransfer && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <div className="flex items-center gap-2 mb-6">
+                <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center">
+                  <PackageCheck className="w-4 h-4 text-cyan-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800">最新交接记录</h3>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">交接时间</p>
+                  <p className="text-sm font-medium text-gray-800">{formatDateTime(latestTransfer.transferTime)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">交接地点</p>
+                  <p className="text-sm font-medium text-gray-800">{latestTransfer.transferPlace}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">家属确认</p>
+                  <p className="text-sm font-medium text-green-600">
+                    {latestTransfer.hasSignature ? '已签字' : '未签字'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">经办人</p>
+                  <p className="text-sm font-medium text-gray-800">{latestTransfer.handlerName}</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {task.remarks && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">

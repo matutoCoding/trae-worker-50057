@@ -1,80 +1,165 @@
 import { create } from 'zustand';
 import { mockColdStorage } from '@/data/coldStorage';
-import type { ColdStorageUnit, StorageUnitStatus } from '@/types';
+import { loadFromStorage, saveToStorage, hasStorageData } from '@/utils/storage';
+import type { ColdStorageUnit, StorageUnitStatus, StorageRecord } from '@/types';
+
+const STORAGE_KEY = 'coldStorage';
+const RECORDS_KEY = 'storageRecords';
+
+function getInitialUnits(): ColdStorageUnit[] {
+  if (hasStorageData(STORAGE_KEY)) {
+    return loadFromStorage<ColdStorageUnit[]>(STORAGE_KEY, mockColdStorage);
+  }
+  return mockColdStorage;
+}
+
+function getInitialRecords(): StorageRecord[] {
+  if (hasStorageData(RECORDS_KEY)) {
+    return loadFromStorage<StorageRecord[]>(RECORDS_KEY, []);
+  }
+  return [];
+}
 
 interface ColdStorageStore {
   units: ColdStorageUnit[];
+  storageRecords: StorageRecord[];
+  _hasHydrated: boolean;
+  
   updateUnitStatus: (id: string, status: StorageUnitStatus, data?: Partial<ColdStorageUnit>) => void;
   getUnitById: (id: string) => ColdStorageUnit | undefined;
   getUnitsByStatus: (status: StorageUnitStatus) => ColdStorageUnit[];
   getUnitsByCabinet: (cabinetNo: string) => ColdStorageUnit[];
   getAvailableUnits: () => ColdStorageUnit[];
   getOccupiedUnits: () => ColdStorageUnit[];
-  storeBody: (unitId: string, taskId: string, deceasedName: string) => void;
+  storeBody: (unitId: string, taskId?: string, deceasedName?: string, expectedPickupTime?: string) => void;
   releaseUnit: (unitId: string) => void;
+  reserveUnit: (unitId: string, taskId: string, deceasedName: string, expectedPickupTime: string) => void;
+  _persist: (units: ColdStorageUnit[]) => void;
+  _persistRecords: (records: StorageRecord[]) => void;
 }
 
 export const useColdStorageStore = create<ColdStorageStore>((set, get) => ({
-  units: mockColdStorage,
-  
-  updateUnitStatus: (id, status, data) => {
-    set((state) => ({
-      units: state.units.map((unit) =>
-        unit.id === id ? { ...unit, status, ...data } : unit
-      ),
-    }));
+  units: getInitialUnits(),
+  storageRecords: getInitialRecords(),
+  _hasHydrated: true,
+
+  _persist: (units) => {
+    saveToStorage(STORAGE_KEY, units);
   },
-  
+
+  _persistRecords: (records) => {
+    saveToStorage(RECORDS_KEY, records);
+  },
+
+  updateUnitStatus: (id, status, data) => {
+    const newUnits = get().units.map((unit) =>
+      unit.id === id ? { ...unit, status, ...data } : unit
+    );
+    set({ units: newUnits });
+    get()._persist(newUnits);
+  },
+
   getUnitById: (id) => {
     return get().units.find((unit) => unit.id === id);
   },
-  
+
   getUnitsByStatus: (status) => {
     return get().units.filter((unit) => unit.status === status);
   },
-  
+
   getUnitsByCabinet: (cabinetNo) => {
     return get().units.filter((unit) => unit.cabinetNo === cabinetNo);
   },
-  
+
   getAvailableUnits: () => {
     return get().units.filter((unit) => unit.status === 'empty');
   },
-  
+
   getOccupiedUnits: () => {
     return get().units.filter((unit) => unit.status === 'occupied');
   },
-  
-  storeBody: (unitId, taskId, deceasedName) => {
-    set((state) => ({
-      units: state.units.map((unit) =>
-        unit.id === unitId
-          ? {
-              ...unit,
-              status: 'occupied' as StorageUnitStatus,
-              taskId,
-              deceasedName,
-              storageTime: new Date().toISOString(),
-            }
-          : unit
-      ),
-    }));
+
+  storeBody: (unitId, taskId, deceasedName, expectedPickupTime) => {
+    const unit = get().units.find((u) => u.id === unitId);
+    if (!unit) return;
+
+    const newUnits = get().units.map((u) =>
+      u.id === unitId
+        ? {
+            ...u,
+            status: 'occupied' as StorageUnitStatus,
+            taskId: taskId || u.taskId,
+            deceasedName: deceasedName || u.deceasedName,
+            storageTime: new Date().toISOString(),
+            expectedPickupTime: expectedPickupTime || u.expectedPickupTime,
+          }
+        : u
+    );
+
+    const record: StorageRecord = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      unitId,
+      cabinetNo: unit.cabinetNo,
+      deceasedName: deceasedName || unit.deceasedName || '未知',
+      taskId: taskId || unit.taskId,
+      type: 'in',
+      operateTime: new Date().toISOString(),
+    };
+
+    const newRecords = [record, ...get().storageRecords];
+
+    set({ units: newUnits, storageRecords: newRecords });
+    get()._persist(newUnits);
+    get()._persistRecords(newRecords);
   },
-  
+
   releaseUnit: (unitId) => {
-    set((state) => ({
-      units: state.units.map((unit) =>
-        unit.id === unitId
-          ? {
-              ...unit,
-              status: 'empty' as StorageUnitStatus,
-              taskId: undefined,
-              deceasedName: undefined,
-              storageTime: undefined,
-              expectedPickupTime: undefined,
-            }
-          : unit
-      ),
-    }));
+    const unit = get().units.find((u) => u.id === unitId);
+    if (!unit) return;
+
+    const newUnits = get().units.map((u) =>
+      u.id === unitId
+        ? {
+            ...u,
+            status: 'empty' as StorageUnitStatus,
+            taskId: undefined,
+            deceasedName: undefined,
+            storageTime: undefined,
+            expectedPickupTime: undefined,
+          }
+        : u
+    );
+
+    const record: StorageRecord = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      unitId,
+      cabinetNo: unit.cabinetNo,
+      deceasedName: unit.deceasedName || '未知',
+      taskId: unit.taskId,
+      type: 'out',
+      operateTime: new Date().toISOString(),
+    };
+
+    const newRecords = [record, ...get().storageRecords];
+
+    set({ units: newUnits, storageRecords: newRecords });
+    get()._persist(newUnits);
+    get()._persistRecords(newRecords);
+  },
+
+  reserveUnit: (unitId, taskId, deceasedName, expectedPickupTime) => {
+    const newUnits = get().units.map((unit) =>
+      unit.id === unitId
+        ? {
+            ...unit,
+            status: 'reserved' as StorageUnitStatus,
+            taskId,
+            deceasedName,
+            expectedPickupTime,
+          }
+        : unit
+    );
+    set({ units: newUnits });
+    get()._persist(newUnits);
   },
 }));

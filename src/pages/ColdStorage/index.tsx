@@ -14,11 +14,13 @@ import {
   Info,
   AlertTriangle,
   PackageCheck,
+  Calendar,
+  FileSignature,
 } from 'lucide-react';
 import type { StorageUnitStatus } from '@/types';
 
 export default function ColdStorage() {
-  const { units, getUnitsByCabinet, getOccupiedUnits, getAvailableUnits, storeBody, releaseUnit } =
+  const { units, getUnitsByCabinet, getOccupiedUnits, getAvailableUnits, storeBody, releaseUnit, storageRecords } =
     useColdStorageStore();
   const { tasks } = useTaskStore();
   const [selectedCabinet, setSelectedCabinet] = useState<string>('A');
@@ -26,11 +28,14 @@ export default function ColdStorage() {
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [showStoreModal, setShowStoreModal] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [deceasedName, setDeceasedName] = useState('');
+  const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [expectedPickupTime, setExpectedPickupTime] = useState('');
 
   const cabinetUnits = getUnitsByCabinet(selectedCabinet);
   
   const filteredUnits = cabinetUnits.filter((unit) => {
-    const matchesStatus = statusFilter === 'all' || unit.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || unit.status === status;
     const matchesSearch =
       searchText === '' ||
       (unit.deceasedName && unit.deceasedName.includes(searchText)) ||
@@ -53,18 +58,52 @@ export default function ColdStorage() {
     : null;
 
   const handleStore = (unitId: string) => {
+    const unit = units.find((u) => u.id === unitId);
+    if (unit?.taskId) {
+      const task = tasks.find((t) => t.id === unit.taskId);
+      if (task) {
+        setDeceasedName(task.deceased.name);
+        setSelectedTaskId(task.id);
+      }
+    } else {
+      setDeceasedName('');
+      setSelectedTaskId('');
+    }
+    setExpectedPickupTime('');
     setSelectedUnit(unitId);
     setShowStoreModal(true);
   };
 
+  const handleConfirmStore = () => {
+    if (!selectedUnit || !deceasedName.trim()) return;
+    
+    const task = tasks.find((t) => t.id === selectedTaskId);
+    const name = deceasedName.trim() || task?.deceased.name || '未知';
+    
+    storeBody(
+      selectedUnit,
+      selectedTaskId || undefined,
+      name,
+      expectedPickupTime || undefined
+    );
+    
+    setShowStoreModal(false);
+    setDeceasedName('');
+    setSelectedTaskId('');
+    setExpectedPickupTime('');
+  };
+
   const handleRelease = (unitId: string) => {
-    if (confirm('确认释放此柜位吗？')) {
+    if (confirm('确认释放此柜位吗？出库后柜位将恢复为空置状态。')) {
       releaseUnit(unitId);
-      setSelectedUnit(null);
     }
   };
 
   const occupancyRate = Math.round((stats.occupied / stats.total) * 100);
+
+  const availableTasks = tasks.filter(
+    (t) => t.status === 'returning' || t.status === 'transferring' || t.status === 'arrived'
+  );
 
   return (
     <div className="space-y-6">
@@ -121,7 +160,7 @@ export default function ColdStorage() {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="搜索柜位..."
+              placeholder="搜索柜位或逝者姓名..."
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               className="w-64 h-10 pl-9 pr-4 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
@@ -323,6 +362,15 @@ export default function ColdStorage() {
                       登记入库
                     </button>
                   )}
+                  {selectedUnitData.status === 'reserved' && (
+                    <button
+                      onClick={() => handleStore(selectedUnitData.id)}
+                      className="w-full py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-medium flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      确认入库
+                    </button>
+                  )}
                   {selectedUnitData.status === 'occupied' && (
                     <button
                       onClick={() => handleRelease(selectedUnitData.id)}
@@ -345,32 +393,66 @@ export default function ColdStorage() {
           <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-4">
             <h3 className="font-semibold text-gray-800 mb-4">停尸登记记录</h3>
             <div className="space-y-3">
-              {getOccupiedUnits()
-                .slice(0, 5)
-                .map((unit) => (
-                  <div
-                    key={unit.id}
-                    onClick={() => setSelectedUnit(unit.id)}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                        <User className="w-4 h-4 text-blue-600" />
+              {getOccupiedUnits().length === 0 ? (
+                <div className="py-8 text-center text-gray-400 text-sm">
+                  暂无停尸记录
+                </div>
+              ) : (
+                getOccupiedUnits()
+                  .slice(0, 5)
+                  .map((unit) => (
+                    <div
+                      key={unit.id}
+                      onClick={() => setSelectedUnit(unit.id)}
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                          <User className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">
+                            {unit.deceasedName}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {unit.cabinetNo}柜 {unit.layer}层
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">
-                          {unit.deceasedName}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {unit.cabinetNo}柜 {unit.layer}层
-                        </p>
+                      <div className="text-right">
+                        <Clock className="w-4 h-4 text-gray-400" />
                       </div>
                     </div>
-                    <Clock className="w-4 h-4 text-gray-400" />
-                  </div>
-                ))}
+                  ))
+              )}
             </div>
           </div>
+
+          {storageRecords.length > 0 && (
+            <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <FileSignature className="w-4 h-4 text-amber-500" />
+                <h3 className="font-semibold text-gray-800">出入库记录</h3>
+              </div>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {storageRecords.slice(0, 8).map((record) => (
+                  <div key={record.id} className="text-xs p-2 bg-gray-50 rounded">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-700 font-medium">
+                        {record.deceasedName}
+                      </span>
+                      <span className={record.type === 'in' ? 'text-green-600' : 'text-red-500'}>
+                        {record.type === 'in' ? '入库' : '出库'}
+                      </span>
+                    </div>
+                    <div className="text-gray-500 mt-1">
+                      {record.cabinetNo}柜 · {formatDateTime(record.operateTime)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -387,25 +469,50 @@ export default function ColdStorage() {
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">逝者姓名</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  逝者姓名 <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
+                  value={deceasedName}
+                  onChange={(e) => setDeceasedName(e.target.value)}
                   className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
                   placeholder="请输入逝者姓名"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">关联任务</label>
-                <select className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400">
+                <select
+                  value={selectedTaskId}
+                  onChange={(e) => {
+                    setSelectedTaskId(e.target.value);
+                    if (e.target.value) {
+                      const task = tasks.find((t) => t.id === e.target.value);
+                      if (task && !deceasedName.trim()) {
+                        setDeceasedName(task.deceased.name);
+                      }
+                    }
+                  }}
+                  className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+                >
                   <option value="">请选择任务（选填）</option>
-                  {tasks
-                    .filter((t) => t.status === 'returning' || t.status === 'transferring')
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.taskNo} - {t.deceased.name}
-                      </option>
-                    ))}
+                  {availableTasks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.taskNo} - {t.deceased.name}
+                    </option>
+                  ))}
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  预计出馆时间
+                </label>
+                <input
+                  type="datetime-local"
+                  value={expectedPickupTime}
+                  onChange={(e) => setExpectedPickupTime(e.target.value)}
+                  className="w-full h-10 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-400"
+                />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
@@ -416,13 +523,9 @@ export default function ColdStorage() {
                 取消
               </button>
               <button
-                onClick={() => {
-                  if (selectedUnit) {
-                    storeBody(selectedUnit, 'mock-task-id', '新登记');
-                    setShowStoreModal(false);
-                  }
-                }}
-                className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+                onClick={handleConfirmStore}
+                disabled={!deceasedName.trim()}
+                className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 确认登记
               </button>
